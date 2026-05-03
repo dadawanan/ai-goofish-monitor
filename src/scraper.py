@@ -789,7 +789,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                             popover_candidates = page.locator("div.ant-popover")
                             popover = popover_candidates.filter(
                                 has=page.locator(
-                                    ".areaWrap--FaZHsn8E, [class*='areaWrap']"
+                                    ".areaWrap--KaVEpxtC, [class*='areaWrap']"
                                 )
                             ).last
                             if not await popover.count():
@@ -807,7 +807,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
 
                             # 列表容器：第一层 children 即省/市/区三列，不再强依赖具体类名，提升鲁棒性
                             area_wrap = popover.locator(
-                                ".areaWrap--FaZHsn8E, [class*='areaWrap']"
+                                ".areaWrap--KaVEpxtC, [class*='areaWrap']"
                             ).first
                             await area_wrap.wait_for(state="visible", timeout=3000)
                             columns = area_wrap.locator(":scope > div")
@@ -822,10 +822,47 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                             async def _click_in_column(
                                 column_locator, text_value: str, desc: str
                             ) -> None:
+                                
+                                # 尝试策略1：精确类名匹配
                                 option = column_locator.locator(
-                                    ".provItem--QAdOx8nD", has_text=text_value
+                                    ".provItem--gG8I2YJh", has_text=text_value
                                 ).first
-                                if await option.count():
+                                count1 = await option.count()
+                                print(f"DEBUG[{desc}]: 策略1 (.provItem--gG8I2YJh) 找到 {count1} 个元素")
+                                
+                                # 尝试策略2：模糊类名匹配
+                                if count1 == 0:
+                                    option = column_locator.locator(
+                                        "[class*='provItem']", has_text=text_value
+                                    ).first
+                                    count2 = await option.count()
+                                    print(f"DEBUG[{desc}]: 策略2 ([class*='provItem']) 找到 {count2} 个元素")
+                                
+                                # 尝试策略3：通用div匹配
+                                if count1 == 0 and (count2 := await option.count()) == 0:
+                                    option = column_locator.locator(
+                                        "div", has_text=text_value
+                                    ).first
+                                    count3 = await option.count()
+                                    print(f"DEBUG[{desc}]: 策略3 (div) 找到 {count3} 个元素")
+                                
+                                # 尝试策略4：任何包含文本的元素
+                                if count1 == 0 and count2 == 0 and (count3 := await option.count()) == 0:
+                                    option = column_locator.locator(
+                                        "*", has_text=text_value
+                                    ).first
+                                    count4 = await option.count()
+                                    print(f"DEBUG[{desc}]: 策略4 (*) 找到 {count4} 个元素")
+                                
+                                if await option.count() > 0:
+                                    try:
+                                        tag_name = await option.evaluate("el => el.tagName")
+                                        class_name = await option.evaluate("el => el.className")
+                                        text_content = await option.evaluate("el => el.textContent?.trim()")
+                                        print(f"DEBUG[{desc}]: 元素详情 - 标签: {tag_name}, 类名: {class_name}, 文本: {text_content}")
+                                    except Exception as e:
+                                        print(f"DEBUG[{desc}]: 获取元素详情失败: {e}")
+                                    
                                     await option.click()
                                     await random_sleep(1.5, 2)
                                     try:
@@ -835,29 +872,47 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                         await option.wait_for(
                                             state="visible", timeout=1500
                                         )
+                                        print(f"DEBUG[{desc}]: 点击成功，元素状态正常")
                                     except PlaywrightTimeoutError:
-                                        pass
+                                        print(f"DEBUG[{desc}]: 点击后等待超时，但继续执行")
                                 else:
                                     print(f"LOG: 未找到{desc} '{text_value}'，跳过。")
+                                    # 打印列中的所有可用选项，帮助调试
+                                    try:
+                                        all_options = await column_locator.locator("div").all()
+                                        option_texts = []
+                                        for opt in all_options[:10]:  # 只取前10个
+                                            try:
+                                                text = await opt.text_content()
+                                                if text:
+                                                    option_texts.append(text.strip()[:30])
+                                            except:
+                                                pass
+                                        print(f"DEBUG[{desc}]: 当前列中可用的选项（前10个）: {option_texts}")
+                                    except Exception as e:
+                                        print(f"DEBUG[{desc}]: 获取列选项列表失败: {e}")
 
                             if len(region_parts) >= 1:
+                                print(f"DEBUG[区域筛选]: 开始选择省份 '{region_parts[0]}'")
                                 await _click_in_column(
                                     col_prov, region_parts[0], "省份"
                                 )
                                 await random_sleep(1, 2)
                             if len(region_parts) >= 2:
+                                print(f"DEBUG[区域筛选]: 开始选择城市 '{region_parts[1]}'")
                                 await _click_in_column(
                                     col_city, region_parts[1], "城市"
                                 )
                                 await random_sleep(1, 2)
                             if len(region_parts) >= 3:
+                                print(f"DEBUG[区域筛选]: 开始选择区县 '{region_parts[2]}'")
                                 await _click_in_column(
                                     col_dist, region_parts[2], "区/县"
                                 )
                                 await random_sleep(1, 2)
 
                             search_btn = popover.locator(
-                                "div.searchBtn--Ic6RKcAb"
+                                "div.searchBtn--nFwxmAgz"
                             ).first
                             if await search_btn.count():
                                 try:
@@ -1288,3 +1343,4 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     cleanup_task_images(task_config.get("task_name", "default"))
 
     return processed_item_count
+
